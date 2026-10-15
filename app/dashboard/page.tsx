@@ -32,6 +32,7 @@ export default function DashboardPage() {
     const [messages, setMessages] = useState<{ role: string, content: string, images?: string[], isError?: boolean }[]>([]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [foundryConsentRequired, setFoundryConsentRequired] = useState(false);
     const [thinkingText, setThinkingText] = useState("...");
     const [conversationId, setConversationId] = useState<string | null>(null);
     const [isMobile, setIsMobile] = useState(false);
@@ -233,20 +234,54 @@ export default function DashboardPage() {
 
             const data = await response.json();
 
-            if (data.reply) {
+            if (
+                response.status === 403 &&
+                data.code === "FOUNDRY_CONSENT_REQUIRED"
+            ) {
+                setIsLoading(false);
+                setFoundryConsentRequired(true);
+
+                setMessages((prev) => [
+                    ...prev,
+                    {
+                        role: "assistant",
+                        content: "Microsoft Foundry permission is required before you can use the chatbot.",
+                        isError: true,
+                    },
+                ]);
+
+                return;
+            }
+
+            if (response.ok && data.reply) {
+                setFoundryConsentRequired(false);
+
                 if (data.conversationId) {
                     setConversationId(data.conversationId);
                 }
+
                 setIsLoading(false);
-                setMessages((prev) => [...prev, { role: "assistant", content: data.reply, images: data.images || [] }]);
+
+                setMessages((prev) => [
+                    ...prev,
+                    {
+                        role: "assistant",
+                        content: data.reply,
+                        images: data.images || [],
+                    },
+                ]);
             } else {
                 console.error("Agent returned an error:", data.error);
                 setIsLoading(false);
-                setMessages((prev) => [...prev, {
-                    role: "assistant",
-                    content: data.error || "Sorry, I encountered an error.",
-                    isError: true
-                }]);
+
+                setMessages((prev) => [
+                    ...prev,
+                    {
+                        role: "assistant",
+                        content: data.error || "Sorry, I encountered an error.",
+                        isError: true,
+                    },
+                ]);
             }
         } catch (error: any) {
             if (error.name === 'AbortError') {
@@ -503,6 +538,21 @@ export default function DashboardPage() {
                                                         >
                                                             {msg.content.replace(/【.*?】/g, '')}
                                                         </ReactMarkdown>
+
+                                                        {foundryConsentRequired &&
+                                                            msg.isError &&
+                                                            msg.content ===
+                                                            "Microsoft Foundry permission is required before you can use the chatbot." && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        window.location.href = "/api/auth/foundry/consent";
+                                                                    }}
+                                                                    className="btn btn-primary btn-sm mt-2 text-white foundry-connect-btn"
+                                                                >
+                                                                    Connect Microsoft Foundry
+                                                                </button>
+                                                            )}
 
                                                         {msg.images && msg.images.length > 0 && (
                                                             <div className="mt-2 d-flex flex-column gap-2">

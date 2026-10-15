@@ -31,16 +31,52 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return true;
         },
         async jwt({ token, account, profile }) {
+
             if (profile) {
                 token.name = profile.name as string;
-                token.email = (profile.email || profile.preferred_username || profile.upn) as string;
+                token.email = (
+                    profile.email ||
+                    profile.preferred_username ||
+                    profile.upn
+                ) as string;
+
+                // Store Microsoft Entra identity for Foundry verification.
+                if (typeof profile.oid === "string") {
+                    token.microsoftOid = profile.oid;
+                }
+
+                if (typeof profile.tid === "string") {
+                    token.microsoftTid = profile.tid;
+                }
             }
+
             // On first sign-in, persist tokens and expiry
             if (account) {
                 token.accessToken = account.access_token;
                 token.refreshToken = account.refresh_token;
                 // expires_at is in seconds (epoch), fall back to 1 hour from now
                 token.expiresAt = account.expires_at ?? Math.floor(Date.now() / 1000) + 3600;
+
+                // Extract oid and tid from id_token if not already set
+                if (account.id_token && (!token.microsoftOid || !token.microsoftTid)) {
+                    try {
+                        const [, payloadBase64] = account.id_token.split(".");
+                        if (payloadBase64) {
+                            const claims = JSON.parse(
+                                Buffer.from(payloadBase64, "base64url").toString("utf-8")
+                            );
+                            if (typeof claims.oid === "string") {
+                                token.microsoftOid = claims.oid;
+                            }
+                            if (typeof claims.tid === "string") {
+                                token.microsoftTid = claims.tid;
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse claims from account.id_token:", e);
+                    }
+                }
+
                 return token;
             }
 

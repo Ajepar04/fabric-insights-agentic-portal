@@ -80,9 +80,19 @@ export function createFoundryUserCredential(
                     suberror: errorBody?.suberror,
                 });
 
+
+                if (
+                    errorBody?.error === "invalid_grant" &&
+                    Array.isArray(errorBody?.error_codes) &&
+                    errorBody.error_codes.includes(65001)
+                ) {
+                    throw new Error("FOUNDRY_CONSENT_REQUIRED");
+                }
+
                 throw new Error(
                     `User-delegated Foundry authentication failed (HTTP ${response.status})`
                 );
+
             }
 
 

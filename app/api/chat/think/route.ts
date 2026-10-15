@@ -1,27 +1,85 @@
-import { NextResponse } from "next/server";
-import { DefaultAzureCredential } from "@azure/identity";
-import { AIProjectClient } from "@azure/ai-projects";
 
-export async function POST(req: Request) {
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { AIProjectClient } from "@azure/ai-projects";
+import { auth } from "@/auth";
+import { getToken } from "next-auth/jwt";
+import { createFoundryUserCredential } from "@/lib/foundry-user-credential";
+
+export const runtime = "nodejs";
+
+export async function POST(req: NextRequest) {
+    // 1. Verify that the user is signed in
+    const session = await auth();
+
+    if (!session?.user) {
+        return NextResponse.json(
+            { error: "Unauthorized. Please sign in." },
+            { status: 401 }
+        );
+    }
+
+    // 2. Retrieve the signed-in user's encrypted session JWT
+    const cookieName = req.cookies.has(
+        "__Secure-authjs.session-token"
+    )
+        ? "__Secure-authjs.session-token"
+        : "authjs.session-token";
+
+    const jwt = await getToken({
+        req,
+        secret: process.env.AUTH_SECRET,
+        cookieName,
+        salt: cookieName,
+    });
+
+    if (
+        !jwt?.sub ||
+        typeof jwt.refreshToken !== "string" ||
+        jwt.error
+    ) {
+        return NextResponse.json(
+            { error: "Please sign in again." },
+            { status: 401 }
+        );
+    }
+
     try {
+        // 3. Validate the user's message
         const body = await req.json();
         const { message } = body;
 
-        if (!message) {
-            return NextResponse.json({ error: "Message is required" }, { status: 400 });
+        if (typeof message !== "string" || !message.trim()) {
+            return NextResponse.json(
+                { error: "Message is required" },
+                { status: 400 }
+            );
         }
 
-        const projectEndpoint = process.env.FOUNDRY_PROJECT_ENDPOINT || "https://demo-cashflow-foundry.services.ai.azure.com/api/projects/demo-cashflow-foundryProject";
-        const projectClient = new AIProjectClient(projectEndpoint, new DefaultAzureCredential());
+        // 4. Connect to Foundry using the user's delegated identity
+        const projectEndpoint =
+            process.env.FOUNDRY_PROJECT_ENDPOINT ||
+            "https://demo-cashflow-foundry.services.ai.azure.com/api/projects/demo-cashflow-foundryProject";
+
+        const projectClient = new AIProjectClient(
+            projectEndpoint,
+            createFoundryUserCredential(jwt.refreshToken)
+        );
+
         const openAIClient = projectClient.getOpenAIClient();
 
-        // Ask the LLM to generate a short thinking phrase based on the user's message
+        // 5. Generate a short thinking phrase
         const response = await openAIClient.chat.completions.create({
-            model: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-4.1", // Or your default deployment
+            model: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-4.1",
             messages: [
                 {
                     role: "system",
-                    content: "You are an AI assistant. The user will give you a query. Output a 3-5 word phrase describing what you are about to do to answer it, ending with an ellipsis (...). Start with a verb ending in -ing. E.g., 'Searching the knowledge base...', 'Analyzing your request...', 'Querying Fabric data...', 'Assessing user query...' Only output the phrase and nothing else."
+                    content:
+                        "You are an AI assistant. The user will give you a query. " +
+                        "Output a 3-5 word phrase describing what you are about to do " +
+                        "to answer it, ending with an ellipsis (...). " +
+                        "Start with a verb ending in -ing. " +
+                        "Only output the phrase and nothing else."
                 },
                 {
                     role: "user",
@@ -32,12 +90,18 @@ export async function POST(req: Request) {
             temperature: 0.7,
         });
 
-        const thinkingPhrase = response.choices[0]?.message?.content?.trim() || "Thinking...";
+        const thinkingPhrase =
+            response.choices[0]?.message?.content?.trim() ||
+            "Thinking...";
 
         return NextResponse.json({ phrase: thinkingPhrase });
+
     } catch (error) {
+        // Don't expose sensitive authentication details
         console.error("Error generating thinking phrase:", error);
-        // Fallback text if the LLM call fails
-        return NextResponse.json({ phrase: "Thinking..." });
+
+        return NextResponse.json({
+            phrase: "Thinking..."
+        });
     }
 }

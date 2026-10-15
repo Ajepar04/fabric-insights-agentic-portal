@@ -175,6 +175,17 @@ export async function POST(req: NextRequest) {
         console.error("Error communicating with Foundry Agent:", error);
 
         const err = error as Error & { code?: string; status?: number; message?: string };
+
+        if (err.message?.includes("FOUNDRY_CONSENT_REQUIRED")) {
+            return NextResponse.json(
+                {
+                    error: "Microsoft Foundry permission is required.",
+                    code: "FOUNDRY_CONSENT_REQUIRED",
+                },
+                { status: 403 }
+            );
+        }
+
         let userMessage = "Sorry, I'm unable to respond right now. Please try again later.";
 
         if (err.code === "PermissionDenied" || err.status === 401) {
