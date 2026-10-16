@@ -35,9 +35,8 @@ export async function POST(req: NextRequest) {
         // 0. Check Auth
         const session = await auth();
 
-        const cookieName = req.cookies.has(
-            "__Secure-authjs.session-token"
-        )
+        const cookieName = req.cookies.has("__Secure-authjs.session-token") ||
+            req.cookies.has("__Secure-authjs.session-token.0")
             ? "__Secure-authjs.session-token"
             : "authjs.session-token";
 

@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
         );
     }
 
-    const cookieName = req.cookies.has("__Secure-authjs.session-token")
+    const cookieName = (req.cookies.has("__Secure-authjs.session-token") || req.cookies.has("__Secure-authjs.session-token.0"))
         ? "__Secure-authjs.session-token"
         : "authjs.session-token";
 
@@ -102,3 +102,4 @@ export async function GET(req: NextRequest) {
 
     return response;
 }
+
